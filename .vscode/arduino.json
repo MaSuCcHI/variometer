@@ -1,0 +1,5 @@
+{
+    "board": "arduino:mbed_nano:nano33ble",
+    "port": "/dev/tty.usbserial-14310",
+    "sketch": "main.ino/main.ino.ino"
+}
