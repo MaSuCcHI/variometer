@@ -45,11 +45,11 @@ void update_bz_tone();
 float pressure = 0;
 std::deque<float> pressure_deque{0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 
-#define VARIOMERTER_INTERVAL 100
+#define VARIOMERTER_INTERVAL 200
 TimedAction variomerter_action = TimedAction(VARIOMERTER_INTERVAL, update_press);
-TimedAction bz_action = TimedAction(100,update_bz_state);
 
-TimedAction bz_tone_action = TimedAction(100000,update_bz_tone);
+TimedAction bz_state_action = TimedAction(100,update_bz_state);
+TimedAction bz_tone_action = TimedAction(100,update_bz_tone);
 
 void setup() {
   tone(BZ_PIN, 262, 600);
@@ -73,7 +73,7 @@ void setup() {
 
 void loop() {
   variomerter_action.check();
-  bz_action.check();
+  bz_state_action.check();
   bz_tone_action.check();
   
   pressure_deque.pop_front();
@@ -85,30 +85,91 @@ void loop() {
   pressure = pressure_ave/10;
 }
 
+unsigned long old_timestamp = 0;
 float old_pressure = 0;
 float vertical_speed = 0;
+
 void update_press() {
   if (!bmp.performReading()) {
     Serial.println("Failed to perform reading :(");
     return;
   }
+
+  // 気圧差分　単位　Pa
   float pressure_diff = pressure - old_pressure;
   old_pressure = pressure;
-  // Serial.print(pressure_diff);
 
-  vertical_speed = pressure_diff * 10;
+  // 高さの差分　単位　cm
+  float height_diff = pressure_diff * 10;
+  
+  // 時間差分　単位 ms
+  unsigned long now_timestamp = millis();
+  unsigned long time_diff = now_timestamp - old_timestamp; 
+  old_timestamp = now_timestamp;
+  
+  // 速度　単位　cm/s
+  vertical_speed =  -1 * height_diff * 1000  / time_diff;
 
-   Serial.print(vertical_speed);
-  Serial.println("cm/s");
 }
 
 void update_bz_state() { 
+//
+  int update_interval = 1000;
+  
+  if (vertical_speed > 1000) {
+    //危険な上昇
+    bz_frequency = 710;
+    update_interval = 100;
+  } else if (vertical_speed > 500) {
+    // 急速な上昇
+     bz_frequency = 510;
+     update_interval = 300;
+  } else if (vertical_speed > 200) {
+    // 上昇
+     bz_frequency = 410;
+     update_interval = 500;
+  } else if (vertical_speed > 100) {
+    // 緩やかな上昇
+     bz_frequency = 310;
+     update_interval = 1000;
+  } else if (vertical_speed > -50) {
+    //高度維持
+    bz_frequency = 270;
+    update_interval = 1200;
 
-  bz_frequency = random(98, 392);  
-  bz_tone_action.setInterval(bz_interval);
+  } else if (vertical_speed > -100) {
+    //滑空
+    bz_frequency = 1000;
+    update_interval = 1000;
+  } else if (vertical_speed > -200) {
+    //下降
+    bz_frequency = 200;
+    update_interval = 1000;
+  } else if (vertical_speed > -500) {
+    //急降下
+    bz_frequency = 170;
+    update_interval = 500;
+  } else {
+    //落下
+    bz_frequency = 130;
+    update_interval = 300;
+  }
+
+  if(update_interval != bz_interval) {
+    bz_tone_action.setInterval(update_interval);
+    bz_interval = update_interval;
+  }
 }
 
 
 void update_bz_tone() {
-  // tone(BZ_PIN,bz_frequency, bz_interval/3);
+  Serial.print(vertical_speed);
+  Serial.print("cm/s,");
+  Serial.println(bz_frequency);
+  if(bz_frequency==1000&&bz_interval==1000){
+    //　滑空の時は音を流さらない
+    noTone(BZ_PIN);
+  }else{
+    tone(BZ_PIN,bz_frequency, bz_interval/3);
+  }
 }
